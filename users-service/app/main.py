@@ -2,8 +2,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.config import FRONTEND_URL
 from app.db import client, ensure_indexes
 from app.routes import router
 
@@ -21,6 +23,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Users Service", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[FRONTEND_URL],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
+
 app.include_router(router)
 
 
