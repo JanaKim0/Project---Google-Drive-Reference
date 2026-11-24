@@ -7,7 +7,7 @@ from app.config import MONGO_URI, MONGO_DB_NAME
 
 logger = logging.getLogger(__name__)
 
-client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
+client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000, tz_aware=True)
 db = client[MONGO_DB_NAME]
 users_collection = db["users"]
 

@@ -1,6 +1,6 @@
 import re
 
-from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 NAME_REGEX = re.compile(r"^[A-Za-zČĆŽŠĐčćžšđ' -]{2,50}$")
 EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
@@ -77,3 +77,13 @@ class UserResponse(BaseModel):
     first_name: str
     last_name: str
     email: str
+
+
+class VerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=128)
+
+
+class MessageResponse(BaseModel):
+    message: str
