@@ -87,3 +87,9 @@ class VerifyRequest(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class QuotaResponse(BaseModel):
+    quota_bytes: int
+    used_bytes: int
+    available_bytes: int
