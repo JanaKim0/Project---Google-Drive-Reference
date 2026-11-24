@@ -1,11 +1,12 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, status
 from pymongo.errors import DuplicateKeyError
 
+from app.config import VERIFICATION_TOKEN_EXPIRE_MINUTES
 from app.db import users_collection
 from app.schemas import RegisterRequest, UserResponse
-from app.security import hash_password
+from app.security import generate_token, hash_password, hash_token
 
 router = APIRouter()
 
@@ -18,6 +19,7 @@ def register(data: RegisterRequest):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_TAKEN_MESSAGE)
 
     now = datetime.now(timezone.utc)
+    verification_token = generate_token()
 
     user = {
         "first_name": data.first_name,
@@ -28,6 +30,8 @@ def register(data: RegisterRequest):
         "is_verified": False,
         "created_at": now,
         "password_changed_at": now,
+        "verification_token_hash": hash_token(verification_token),
+        "verification_token_expires_at": now + timedelta(minutes=VERIFICATION_TOKEN_EXPIRE_MINUTES),
     }
 
     try:
