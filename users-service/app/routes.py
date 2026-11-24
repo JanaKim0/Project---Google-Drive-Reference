@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, HTTPException, status
+from pymongo.errors import DuplicateKeyError
 
 from app.db import users_collection
 from app.schemas import RegisterRequest, UserResponse
@@ -8,9 +9,14 @@ from app.security import hash_password
 
 router = APIRouter()
 
+EMAIL_TAKEN_MESSAGE = "Imejl je već registrovan."
+
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register(data: RegisterRequest):
+    if users_collection.find_one({"email": data.email}):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_TAKEN_MESSAGE)
+
     now = datetime.now(timezone.utc)
 
     user = {
@@ -24,7 +30,10 @@ def register(data: RegisterRequest):
         "password_changed_at": now,
     }
 
-    result = users_collection.insert_one(user)
+    try:
+        result = users_collection.insert_one(user)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_TAKEN_MESSAGE)
 
     return UserResponse(
         id=str(result.inserted_id),

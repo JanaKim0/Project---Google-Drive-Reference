@@ -1,9 +1,47 @@
-from fastapi import FastAPI
-from app.db import client
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from app.db import client, ensure_indexes
 from app.routes import router
 
-app = FastAPI(title="Users Service")
+DEFAULT_MESSAGES = {
+    "missing": "Polje je obavezno.",
+    "extra_forbidden": "Polje nije dozvoljeno.",
+    "string_type": "Polje mora biti tekst.",
+}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ensure_indexes()
+    yield
+
+
+app = FastAPI(title="Users Service", lifespan=lifespan)
 app.include_router(router)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = {}
+    for error in exc.errors():
+        loc = error.get("loc", ())
+        field = loc[1] if len(loc) > 1 and isinstance(loc[1], str) else "body"
+
+        if error.get("type") == "value_error":
+            message = str(error.get("ctx", {}).get("error", "Neispravna vrednost."))
+        else:
+            message = DEFAULT_MESSAGES.get(error.get("type"), "Neispravan zahtev.")
+
+        errors.setdefault(field, message)
+
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"detail": "Podaci nisu ispravni.", "errors": errors},
+    )
 
 
 @app.get("/health")
