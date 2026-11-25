@@ -45,3 +45,34 @@ export function validateRegisterForm(form) {
 
   return errors
 }
+
+const OTP_REGEX = /^[0-9]{6}$/
+
+export function validateLoginForm(form) {
+  const errors = {}
+
+  const email = form.email.trim()
+  if (!email) {
+    errors.email = 'Imejl je obavezan.'
+  } else if (email.length > 254 || !EMAIL_REGEX.test(email)) {
+    errors.email = 'Imejl nije u ispravnom formatu.'
+  }
+
+  if (!form.password) {
+    errors.password = 'Lozinka je obavezna.'
+  } else if (form.password.length > 64) {
+    errors.password = 'Lozinka je predugačka.'
+  }
+
+  return errors
+}
+
+export function validateOtp(otp) {
+  if (!otp) {
+    return 'Kod je obavezan.'
+  }
+  if (!OTP_REGEX.test(otp)) {
+    return 'Kod mora imati tačno 6 cifara.'
+  }
+  return ''
+}
