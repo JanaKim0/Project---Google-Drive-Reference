@@ -5,11 +5,14 @@ from datetime import datetime, timedelta, timezone
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, HTTPException, status
+from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.config import (
     DEFAULT_STORAGE_QUOTA_BYTES,
+    JWT_EXPIRE_MINUTES,
     OTP_EXPIRE_MINUTES,
+    OTP_MAX_ATTEMPTS,
     VERIFICATION_TOKEN_EXPIRE_MINUTES,
 )
 from app.db import users_collection
@@ -19,16 +22,20 @@ from app.schemas import (
     MessageResponse,
     QuotaResponse,
     RegisterRequest,
+    TokenResponse,
     UserResponse,
+    VerifyOtpRequest,
     VerifyRequest,
 )
 from app.security import (
     DUMMY_PASSWORD_HASH,
+    create_access_token,
     generate_otp,
     generate_token,
     hash_otp,
     hash_password,
     hash_token,
+    verify_otp,
     verify_password,
 )
 
@@ -44,6 +51,11 @@ USER_NOT_FOUND_MESSAGE = "Korisnik nije pronađen."
 INVALID_CREDENTIALS_MESSAGE = "Pogrešan imejl ili lozinka."
 ACCOUNT_NOT_VERIFIED_MESSAGE = "Nalog nije potvrđen. Proverite svoj imejl."
 OTP_SEND_FAILED_MESSAGE = "Slanje koda nije uspelo. Pokušajte ponovo."
+INVALID_OTP_MESSAGE = "Kod nije ispravan ili je istekao. Prijavite se ponovo."
+WRONG_OTP_MESSAGE = "Kod nije ispravan. Preostalo pokušaja: {remaining}."
+TOO_MANY_ATTEMPTS_MESSAGE = "Previše pogrešnih pokušaja. Prijavite se ponovo."
+
+OTP_FIELDS = {"otp_hash": "", "otp_expires_at": "", "otp_attempts": ""}
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -138,6 +150,49 @@ def login(data: LoginRequest):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=OTP_SEND_FAILED_MESSAGE)
 
     return MessageResponse(message="Kod za prijavu je poslat na imejl.")
+
+
+def _clear_otp(user_id) -> None:
+    users_collection.update_one({"_id": user_id}, {"$unset": OTP_FIELDS})
+
+
+@router.post("/login/verify", response_model=TokenResponse)
+def verify_login_otp(data: VerifyOtpRequest):
+    user = users_collection.find_one_and_update(
+        {"email": data.email, "otp_hash": {"$exists": True}},
+        {"$inc": {"otp_attempts": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=INVALID_OTP_MESSAGE)
+
+    if user["otp_attempts"] > OTP_MAX_ATTEMPTS:
+        _clear_otp(user["_id"])
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=TOO_MANY_ATTEMPTS_MESSAGE)
+
+    if user["otp_expires_at"] < datetime.now(timezone.utc):
+        _clear_otp(user["_id"])
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=INVALID_OTP_MESSAGE)
+
+    if not verify_otp(data.otp, user["otp_hash"]):
+        remaining = OTP_MAX_ATTEMPTS - user["otp_attempts"]
+        if remaining <= 0:
+            _clear_otp(user["_id"])
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=TOO_MANY_ATTEMPTS_MESSAGE)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=WRONG_OTP_MESSAGE.format(remaining=remaining),
+        )
+
+    result = users_collection.update_one(
+        {"_id": user["_id"], "otp_hash": user["otp_hash"]},
+        {"$unset": OTP_FIELDS},
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=INVALID_OTP_MESSAGE)
+
+    access_token = create_access_token(str(user["_id"]), user.get("role", "user"))
+    return TokenResponse(access_token=access_token, expires_in=JWT_EXPIRE_MINUTES * 60)
 
 
 @router.get("/users/{user_id}/quota", response_model=QuotaResponse)

@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 NAME_REGEX = re.compile(r"^[A-Za-zČĆŽŠĐčćžšđ' -]{2,50}$")
 EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+OTP_REGEX = re.compile(r"[0-9]{6}")
 
 EMAIL_MAX_LENGTH = 254
 PASSWORD_MIN_LENGTH = 8
@@ -102,6 +103,32 @@ class LoginRequest(BaseModel):
         if len(value) > PASSWORD_MAX_LENGTH or len(value.encode("utf-8")) > BCRYPT_MAX_BYTES:
             raise ValueError("Lozinka je predugačka.")
         return value
+
+
+class VerifyOtpRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str
+    otp: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return validate_email_value(value)
+
+    @field_validator("otp")
+    @classmethod
+    def validate_otp(cls, value: str) -> str:
+        value = value.strip()
+        if not OTP_REGEX.fullmatch(value):
+            raise ValueError("Kod mora imati tačno 6 cifara.")
+        return value
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
 
 
 class VerifyRequest(BaseModel):
