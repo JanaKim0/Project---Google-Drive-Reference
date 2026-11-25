@@ -40,6 +40,9 @@ def verify_otp(otp: str, otp_hash: str) -> bool:
     return verify_password(otp, otp_hash)
 
 
+TOKEN_REQUIRED_CLAIMS = ["sub", "role", "iat", "exp", "jti"]
+
+
 def create_access_token(user_id: str, role: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {
@@ -47,5 +50,15 @@ def create_access_token(user_id: str, role: str) -> str:
         "role": role,
         "iat": now,
         "exp": now + timedelta(minutes=JWT_EXPIRE_MINUTES),
+        "jti": secrets.token_urlsafe(16),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def decode_access_token(token: str) -> dict:
+    return jwt.decode(
+        token,
+        JWT_SECRET,
+        algorithms=[JWT_ALGORITHM],
+        options={"require": TOKEN_REQUIRED_CLAIMS},
+    )
