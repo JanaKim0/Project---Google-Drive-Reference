@@ -1,3 +1,4 @@
+const API_URL = import.meta.env.VITE_API_URL
 const TOKEN_KEY = 'access_token'
 const EXPIRES_AT_KEY = 'access_token_expires_at'
 
@@ -21,4 +22,18 @@ export function getToken() {
   }
 
   return token
+}
+
+export async function logout() {
+  const token = getToken()
+  clearToken()
+
+  if (!token) {
+    return
+  }
+
+  await fetch(`${API_URL}/logout`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => null)
 }

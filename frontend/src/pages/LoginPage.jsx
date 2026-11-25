@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { validateLoginForm, validateOtp } from '../utils/validation.js'
 import { saveToken } from '../utils/auth.js'
 
@@ -18,12 +18,13 @@ async function postJson(path, body) {
 
 function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [step, setStep] = useState('credentials')
   const [form, setForm] = useState({ email: '', password: '' })
   const [otp, setOtp] = useState('')
   const [errors, setErrors] = useState({})
   const [errorMessage, setErrorMessage] = useState('')
-  const [infoMessage, setInfoMessage] = useState('')
+  const [infoMessage, setInfoMessage] = useState(location.state?.message || '')
   const [loading, setLoading] = useState(false)
 
   function handleChange(e) {
@@ -144,7 +145,9 @@ function LoginPage() {
 
   return (
     <form onSubmit={handleLogin} noValidate>
-      <h2>Prijava</h2>
+        <h2>Prijava</h2>
+        {infoMessage && <p style={{ color: 'green' }}>{infoMessage}</p>}
+
 
       <div>
         <label htmlFor="email">Imejl</label>
