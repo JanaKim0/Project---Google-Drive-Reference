@@ -8,7 +8,7 @@ from pymongo.errors import DuplicateKeyError
 from app.config import VERIFICATION_TOKEN_EXPIRE_MINUTES
 from app.db import users_collection
 from app.email_service import send_verification_email
-from app.schemas import RegisterRequest, UserResponse
+from app.schemas import MessageResponse, RegisterRequest, UserResponse, VerifyRequest
 from app.security import generate_token, hash_password, hash_token
 
 logger = logging.getLogger(__name__)
@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 EMAIL_TAKEN_MESSAGE = "Imejl je već registrovan."
+INVALID_TOKEN_MESSAGE = "Link za potvrdu nije ispravan ili je već iskorišćen."
+EXPIRED_TOKEN_MESSAGE = "Link za potvrdu je istekao."
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -55,3 +57,23 @@ def register(data: RegisterRequest):
         last_name=data.last_name,
         email=data.email,
     )
+
+
+@router.post("/verify", response_model=MessageResponse)
+def verify_account(data: VerifyRequest):
+    user = users_collection.find_one({"verification_token_hash": hash_token(data.token)})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=INVALID_TOKEN_MESSAGE)
+
+    if user["verification_token_expires_at"] < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=EXPIRED_TOKEN_MESSAGE)
+
+    users_collection.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {"is_verified": True},
+            "$unset": {"verification_token_hash": "", "verification_token_expires_at": ""},
+        },
+    )
+
+    return MessageResponse(message="Nalog je uspešno potvrđen.")
