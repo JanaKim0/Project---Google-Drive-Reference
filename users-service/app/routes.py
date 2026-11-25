@@ -2,13 +2,15 @@ import logging
 import smtplib
 from datetime import datetime, timedelta, timezone
 
+from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import APIRouter, HTTPException, status
 from pymongo.errors import DuplicateKeyError
 
 from app.config import DEFAULT_STORAGE_QUOTA_BYTES, VERIFICATION_TOKEN_EXPIRE_MINUTES
 from app.db import users_collection
 from app.email_service import send_verification_email
-from app.schemas import MessageResponse, RegisterRequest, UserResponse, VerifyRequest
+from app.schemas import MessageResponse, QuotaResponse, RegisterRequest, UserResponse, VerifyRequest
 from app.security import generate_token, hash_password, hash_token
 
 logger = logging.getLogger(__name__)
@@ -18,6 +20,8 @@ router = APIRouter()
 EMAIL_TAKEN_MESSAGE = "Imejl je već registrovan."
 INVALID_TOKEN_MESSAGE = "Link za potvrdu nije ispravan ili je već iskorišćen."
 EXPIRED_TOKEN_MESSAGE = "Link za potvrdu je istekao."
+INVALID_USER_ID_MESSAGE = "Neispravan identifikator korisnika."
+USER_NOT_FOUND_MESSAGE = "Korisnik nije pronađen."
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -79,3 +83,27 @@ def verify_account(data: VerifyRequest):
     )
 
     return MessageResponse(message="Nalog je uspešno potvrđen.")
+
+
+@router.get("/users/{user_id}/quota", response_model=QuotaResponse)
+def get_user_quota(user_id: str):
+    try:
+        object_id = ObjectId(user_id)
+    except InvalidId:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=INVALID_USER_ID_MESSAGE)
+
+    user = users_collection.find_one(
+        {"_id": object_id},
+        {"storage_quota_bytes": 1, "storage_used_bytes": 1},
+    )
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=USER_NOT_FOUND_MESSAGE)
+
+    quota = user.get("storage_quota_bytes", 0)
+    used = user.get("storage_used_bytes", 0)
+
+    return QuotaResponse(
+        quota_bytes=quota,
+        used_bytes=used,
+        available_bytes=max(quota - used, 0),
+    )
