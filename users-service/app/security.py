@@ -1,7 +1,11 @@
 import hashlib
 import secrets
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
+import jwt
+
+from app.config import JWT_ALGORITHM, JWT_EXPIRE_MINUTES, JWT_SECRET
 
 
 def hash_password(password: str) -> str:
@@ -30,3 +34,18 @@ def generate_otp() -> str:
 
 def hash_otp(otp: str) -> str:
     return hash_password(otp)
+
+
+def verify_otp(otp: str, otp_hash: str) -> bool:
+    return verify_password(otp, otp_hash)
+
+
+def create_access_token(user_id: str, role: str) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": user_id,
+        "role": role,
+        "iat": now,
+        "exp": now + timedelta(minutes=JWT_EXPIRE_MINUTES),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
