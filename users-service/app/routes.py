@@ -1,3 +1,5 @@
+import logging
+import smtplib
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, status
@@ -5,8 +7,11 @@ from pymongo.errors import DuplicateKeyError
 
 from app.config import VERIFICATION_TOKEN_EXPIRE_MINUTES
 from app.db import users_collection
+from app.email_service import send_verification_email
 from app.schemas import RegisterRequest, UserResponse
 from app.security import generate_token, hash_password, hash_token
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -38,6 +43,11 @@ def register(data: RegisterRequest):
         result = users_collection.insert_one(user)
     except DuplicateKeyError:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_TAKEN_MESSAGE)
+
+    try:
+        send_verification_email(data.email, data.first_name, verification_token)
+    except (smtplib.SMTPException, OSError):
+        logger.warning("Slanje imejla za potvrdu nije uspelo za korisnika %s", result.inserted_id)
 
     return UserResponse(
         id=str(result.inserted_id),
