@@ -11,3 +11,5 @@ SMTP_HOST = os.environ["SMTP_HOST"]
 SMTP_PORT = int(os.environ["SMTP_PORT"])
 SMTP_FROM = os.environ["SMTP_FROM"]
 FRONTEND_URL = os.environ["FRONTEND_URL"]
+
+DEFAULT_STORAGE_QUOTA_BYTES = int(os.environ["DEFAULT_STORAGE_QUOTA_BYTES"])
