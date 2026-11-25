@@ -7,11 +7,30 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, HTTPException, status
 from pymongo.errors import DuplicateKeyError
 
-from app.config import DEFAULT_STORAGE_QUOTA_BYTES, VERIFICATION_TOKEN_EXPIRE_MINUTES
+from app.config import (
+    DEFAULT_STORAGE_QUOTA_BYTES,
+    OTP_EXPIRE_MINUTES,
+    VERIFICATION_TOKEN_EXPIRE_MINUTES,
+)
 from app.db import users_collection
-from app.email_service import send_verification_email
-from app.schemas import MessageResponse, QuotaResponse, RegisterRequest, UserResponse, VerifyRequest
-from app.security import generate_token, hash_password, hash_token
+from app.email_service import send_otp_email, send_verification_email
+from app.schemas import (
+    LoginRequest,
+    MessageResponse,
+    QuotaResponse,
+    RegisterRequest,
+    UserResponse,
+    VerifyRequest,
+)
+from app.security import (
+    DUMMY_PASSWORD_HASH,
+    generate_otp,
+    generate_token,
+    hash_otp,
+    hash_password,
+    hash_token,
+    verify_password,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +41,9 @@ INVALID_TOKEN_MESSAGE = "Link za potvrdu nije ispravan ili je već iskorišćen.
 EXPIRED_TOKEN_MESSAGE = "Link za potvrdu je istekao."
 INVALID_USER_ID_MESSAGE = "Neispravan identifikator korisnika."
 USER_NOT_FOUND_MESSAGE = "Korisnik nije pronađen."
+INVALID_CREDENTIALS_MESSAGE = "Pogrešan imejl ili lozinka."
+ACCOUNT_NOT_VERIFIED_MESSAGE = "Nalog nije potvrđen. Proverite svoj imejl."
+OTP_SEND_FAILED_MESSAGE = "Slanje koda nije uspelo. Pokušajte ponovo."
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -83,6 +105,39 @@ def verify_account(data: VerifyRequest):
     )
 
     return MessageResponse(message="Nalog je uspešno potvrđen.")
+
+
+@router.post("/login", response_model=MessageResponse)
+def login(data: LoginRequest):
+    user = users_collection.find_one({"email": data.email})
+    password_hash = user["password_hash"] if user else DUMMY_PASSWORD_HASH
+    password_valid = verify_password(data.password, password_hash)
+
+    if not user or not password_valid:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=INVALID_CREDENTIALS_MESSAGE)
+
+    if not user.get("is_verified"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ACCOUNT_NOT_VERIFIED_MESSAGE)
+
+    otp = generate_otp()
+    users_collection.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {
+                "otp_hash": hash_otp(otp),
+                "otp_expires_at": datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRE_MINUTES),
+                "otp_attempts": 0,
+            }
+        },
+    )
+
+    try:
+        send_otp_email(user["email"], user["first_name"], otp)
+    except (smtplib.SMTPException, OSError):
+        logger.warning("Slanje OTP koda nije uspelo za korisnika %s", user["_id"])
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=OTP_SEND_FAILED_MESSAGE)
+
+    return MessageResponse(message="Kod za prijavu je poslat na imejl.")
 
 
 @router.get("/users/{user_id}/quota", response_model=QuotaResponse)

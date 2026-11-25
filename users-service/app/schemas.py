@@ -13,6 +13,15 @@ BCRYPT_MAX_BYTES = 72
 NAME_LABELS = {"first_name": "Ime", "last_name": "Prezime"}
 
 
+def validate_email_value(value: str) -> str:
+    value = value.strip().lower()
+    if not value:
+        raise ValueError("Imejl je obavezan.")
+    if len(value) > EMAIL_MAX_LENGTH or not EMAIL_REGEX.fullmatch(value):
+        raise ValueError("Imejl nije u ispravnom formatu.")
+    return value
+
+
 class RegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -36,12 +45,7 @@ class RegisterRequest(BaseModel):
     @field_validator("email")
     @classmethod
     def validate_email(cls, value: str) -> str:
-        value = value.strip().lower()
-        if not value:
-            raise ValueError("Imejl je obavezan.")
-        if len(value) > EMAIL_MAX_LENGTH or not EMAIL_REGEX.fullmatch(value):
-            raise ValueError("Imejl nije u ispravnom formatu.")
-        return value
+        return validate_email_value(value)
 
     @field_validator("password")
     @classmethod
@@ -77,6 +81,27 @@ class UserResponse(BaseModel):
     first_name: str
     last_name: str
     email: str
+
+
+class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str
+    password: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return validate_email_value(value)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if not value:
+            raise ValueError("Lozinka je obavezna.")
+        if len(value) > PASSWORD_MAX_LENGTH or len(value.encode("utf-8")) > BCRYPT_MAX_BYTES:
+            raise ValueError("Lozinka je predugačka.")
+        return value
 
 
 class VerifyRequest(BaseModel):
