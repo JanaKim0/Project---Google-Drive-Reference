@@ -3,6 +3,7 @@ import HomePage from './pages/HomePage.jsx'
 import RegisterPage from './pages/RegisterPage.jsx'
 import VerifyPage from './pages/VerifyPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
+import ChangePasswordPage from './pages/ChangePasswordPage.jsx'
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/verify" element={<VerifyPage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/change-password" element={<ChangePasswordPage />} />
       </Routes>
     </div>
   )
