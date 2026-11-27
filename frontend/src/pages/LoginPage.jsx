@@ -25,6 +25,7 @@ function LoginPage() {
   const [errors, setErrors] = useState({})
   const [errorMessage, setErrorMessage] = useState('')
   const [infoMessage, setInfoMessage] = useState(location.state?.message || '')
+  const [showResetLink, setShowResetLink] = useState(false)
   const [loading, setLoading] = useState(false)
 
   function handleChange(e) {
@@ -48,6 +49,7 @@ function LoginPage() {
     e.preventDefault()
     setErrorMessage('')
     setInfoMessage('')
+    setShowResetLink(false)
 
     const validationErrors = validateLoginForm(form)
     setErrors(validationErrors)
@@ -67,6 +69,7 @@ function LoginPage() {
       } else {
         setErrors(data.errors || {})
         setErrorMessage(data.detail || 'Prijava nije uspela.')
+        setShowResetLink(data.code === 'PASSWORD_EXPIRED')
       }
     } catch {
       setErrorMessage(SERVER_UNAVAILABLE_MESSAGE)
@@ -182,6 +185,11 @@ function LoginPage() {
       </div>
 
       {errorMessage && <p style={{ color: 'red' }}>{errorMessage}</p>}
+      {showResetLink && (
+        <p>
+          <Link to="/forgot-password">Postavite novu lozinku</Link>
+        </p>
+      )}
 
       <button type="submit" disabled={loading}>
         {loading ? 'Slanje...' : 'Prijavi se'}
