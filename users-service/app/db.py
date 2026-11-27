@@ -11,6 +11,7 @@ client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000, tz_aware=True)
 db = client[MONGO_DB_NAME]
 users_collection = db["users"]
 revoked_tokens_collection = db["revoked_tokens"]
+audit_log_collection = db["audit_log"]
 
 
 def ensure_indexes():
@@ -24,3 +25,8 @@ def ensure_indexes():
         revoked_tokens_collection.create_index("expires_at", expireAfterSeconds=0)
     except PyMongoError as e:
         logger.warning("Nije moguće kreirati indekse za poništene tokene: %s", e)
+
+    try:
+        audit_log_collection.create_index([("user_id", 1), ("created_at", -1)])
+    except PyMongoError as e:
+        logger.warning("Nije moguće kreirati indeks za audit log: %s", e)
