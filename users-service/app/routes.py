@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -15,14 +15,16 @@ from app.config import (
     OTP_EXPIRE_MINUTES,
     OTP_MAX_ATTEMPTS,
     PASSWORD_MIN_AGE_MINUTES,
+    PASSWORD_RESET_EXPIRE_MINUTES,
     VERIFICATION_TOKEN_EXPIRE_MINUTES,
 )
 from app.db import revoked_tokens_collection, users_collection
-from app.email_service import send_otp_email, send_verification_email
+from app.email_service import send_otp_email, send_password_reset_email, send_verification_email
 from app.schemas import (
     ChangePasswordRequest,
     LoginRequest,
     MessageResponse,
+    PasswordResetRequest,
     QuotaResponse,
     RegisterRequest,
     TokenResponse,
@@ -61,6 +63,9 @@ LOGOUT_SUCCESS_MESSAGE = "Uspešno ste se odjavili."
 WRONG_CURRENT_PASSWORD_MESSAGE = "Trenutna lozinka nije ispravna."
 PASSWORD_TOO_NEW_MESSAGE = "Lozinka mora biti stara najmanje jedan dan da bi se mogla promeniti."
 PASSWORD_CHANGED_MESSAGE = "Lozinka je uspešno promenjena. Prijavite se ponovo."
+PASSWORD_RESET_REQUESTED_MESSAGE = "Ako nalog sa ovim imejlom postoji, poslali smo link za resetovanje lozinke."
+
+PASSWORD_RESET_COOLDOWN = timedelta(minutes=1)
 
 OTP_FIELDS = {"otp_hash": "", "otp_expires_at": "", "otp_attempts": ""}
 
@@ -239,6 +244,45 @@ def change_password(data: ChangePasswordRequest, token: dict = Depends(get_curre
     )
 
     return MessageResponse(message=PASSWORD_CHANGED_MESSAGE)
+
+
+def _send_password_reset_email_safely(user_id, email: str, first_name: str, token: str) -> None:
+    try:
+        send_password_reset_email(email, first_name, token)
+    except (smtplib.SMTPException, OSError):
+        logger.warning("Slanje linka za resetovanje lozinke nije uspelo za korisnika %s", user_id)
+
+
+@router.post("/password-reset/request", response_model=MessageResponse)
+def request_password_reset(data: PasswordResetRequest, background_tasks: BackgroundTasks):
+    now = datetime.now(timezone.utc)
+    token = generate_token()
+
+    user = users_collection.find_one_and_update(
+        {
+            "email": data.email,
+            "is_verified": True,
+            "$or": [
+                {"password_reset_requested_at": {"$exists": False}},
+                {"password_reset_requested_at": {"$lt": now - PASSWORD_RESET_COOLDOWN}},
+            ],
+        },
+        {
+            "$set": {
+                "password_reset_token_hash": hash_token(token),
+                "password_reset_expires_at": now + timedelta(minutes=PASSWORD_RESET_EXPIRE_MINUTES),
+                "password_reset_requested_at": now,
+            }
+        },
+        projection={"email": 1, "first_name": 1},
+    )
+
+    if user:
+        background_tasks.add_task(
+            _send_password_reset_email_safely, user["_id"], user["email"], user["first_name"], token
+        )
+
+    return MessageResponse(message=PASSWORD_RESET_REQUESTED_MESSAGE)
 
 
 @router.get("/users/{user_id}/quota", response_model=QuotaResponse)
