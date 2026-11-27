@@ -153,6 +153,27 @@ class PasswordResetRequest(BaseModel):
         return validate_email_value(value)
 
 
+class PasswordResetConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=128)
+    new_password: str
+    confirm_new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        return validate_password_strength(value)
+
+    @field_validator("confirm_new_password")
+    @classmethod
+    def validate_confirm_new_password(cls, value: str, info: ValidationInfo) -> str:
+        new_password = info.data.get("new_password")
+        if new_password is not None and value != new_password:
+            raise ValueError("Lozinke se ne poklapaju.")
+        return value
+
+
 class VerifyOtpRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

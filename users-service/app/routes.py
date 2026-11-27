@@ -24,6 +24,7 @@ from app.schemas import (
     ChangePasswordRequest,
     LoginRequest,
     MessageResponse,
+    PasswordResetConfirmRequest,
     PasswordResetRequest,
     QuotaResponse,
     RegisterRequest,
@@ -64,10 +65,15 @@ WRONG_CURRENT_PASSWORD_MESSAGE = "Trenutna lozinka nije ispravna."
 PASSWORD_TOO_NEW_MESSAGE = "Lozinka mora biti stara najmanje jedan dan da bi se mogla promeniti."
 PASSWORD_CHANGED_MESSAGE = "Lozinka je uspešno promenjena. Prijavite se ponovo."
 PASSWORD_RESET_REQUESTED_MESSAGE = "Ako nalog sa ovim imejlom postoji, poslali smo link za resetovanje lozinke."
+INVALID_RESET_TOKEN_MESSAGE = "Link za resetovanje lozinke nije ispravan ili je već iskorišćen."
+EXPIRED_RESET_TOKEN_MESSAGE = "Link za resetovanje lozinke je istekao. Zatražite novi."
+SAME_PASSWORD_MESSAGE = "Nova lozinka mora biti različita od trenutne."
+PASSWORD_RESET_SUCCESS_MESSAGE = "Lozinka je uspešno resetovana. Prijavite se sa novom lozinkom."
 
 PASSWORD_RESET_COOLDOWN = timedelta(minutes=1)
 
 OTP_FIELDS = {"otp_hash": "", "otp_expires_at": "", "otp_attempts": ""}
+PASSWORD_RESET_FIELDS = {"password_reset_token_hash": "", "password_reset_expires_at": ""}
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -283,6 +289,38 @@ def request_password_reset(data: PasswordResetRequest, background_tasks: Backgro
         )
 
     return MessageResponse(message=PASSWORD_RESET_REQUESTED_MESSAGE)
+
+
+@router.post("/password-reset/confirm", response_model=MessageResponse)
+def confirm_password_reset(data: PasswordResetConfirmRequest):
+    token_hash = hash_token(data.token)
+    user = users_collection.find_one({"password_reset_token_hash": token_hash})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=INVALID_RESET_TOKEN_MESSAGE)
+
+    now = datetime.now(timezone.utc)
+    if user["password_reset_expires_at"] < now:
+        users_collection.update_one({"_id": user["_id"]}, {"$unset": PASSWORD_RESET_FIELDS})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=EXPIRED_RESET_TOKEN_MESSAGE)
+
+    password_changed_at = user.get("password_changed_at")
+    if password_changed_at and now - password_changed_at < timedelta(minutes=PASSWORD_MIN_AGE_MINUTES):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=PASSWORD_TOO_NEW_MESSAGE)
+
+    if verify_password(data.new_password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=SAME_PASSWORD_MESSAGE)
+
+    result = users_collection.update_one(
+        {"_id": user["_id"], "password_reset_token_hash": token_hash},
+        {
+            "$set": {"password_hash": hash_password(data.new_password), "password_changed_at": now},
+            "$unset": PASSWORD_RESET_FIELDS,
+        },
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=INVALID_RESET_TOKEN_MESSAGE)
+
+    return MessageResponse(message=PASSWORD_RESET_SUCCESS_MESSAGE)
 
 
 @router.get("/users/{user_id}/quota", response_model=QuotaResponse)
