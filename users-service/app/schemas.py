@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
@@ -94,6 +95,16 @@ class UserResponse(BaseModel):
     first_name: str
     last_name: str
     email: str
+
+
+class CurrentUserResponse(BaseModel):
+    id: str
+    first_name: str
+    last_name: str
+    email: str
+    role: str
+    password_expires_at: datetime | None
+    password_expiry_warning: bool
 
 
 class LoginRequest(BaseModel):

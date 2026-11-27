@@ -15,6 +15,8 @@ from app.config import (
     JWT_EXPIRE_MINUTES,
     OTP_EXPIRE_MINUTES,
     OTP_MAX_ATTEMPTS,
+    PASSWORD_EXPIRY_WARNING_MINUTES,
+    PASSWORD_MAX_AGE_MINUTES,
     PASSWORD_MIN_AGE_MINUTES,
     PASSWORD_RESET_EXPIRE_MINUTES,
     VERIFICATION_TOKEN_EXPIRE_MINUTES,
@@ -28,6 +30,7 @@ from app.email_service import (
 )
 from app.schemas import (
     ChangePasswordRequest,
+    CurrentUserResponse,
     LoginRequest,
     MessageResponse,
     PasswordResetConfirmRequest,
@@ -374,6 +377,34 @@ def confirm_password_reset(data: PasswordResetConfirmRequest):
         _log_security_event(user["_id"], "ACCOUNT_UNLOCKED_PASSWORD_RESET")
 
     return MessageResponse(message=PASSWORD_RESET_SUCCESS_MESSAGE)
+
+
+@router.get("/users/me", response_model=CurrentUserResponse)
+def get_current_user(token: dict = Depends(get_current_token)):
+    user = users_collection.find_one(
+        {"_id": ObjectId(token["sub"])},
+        {"first_name": 1, "last_name": 1, "email": 1, "role": 1, "password_changed_at": 1},
+    )
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=NOT_AUTHENTICATED_MESSAGE)
+
+    password_changed_at = user.get("password_changed_at")
+    password_expires_at = None
+    password_expiry_warning = False
+    if password_changed_at:
+        password_expires_at = password_changed_at + timedelta(minutes=PASSWORD_MAX_AGE_MINUTES)
+        time_left = password_expires_at - datetime.now(timezone.utc)
+        password_expiry_warning = time_left <= timedelta(minutes=PASSWORD_EXPIRY_WARNING_MINUTES)
+
+    return CurrentUserResponse(
+        id=str(user["_id"]),
+        first_name=user["first_name"],
+        last_name=user["last_name"],
+        email=user["email"],
+        role=user.get("role", "user"),
+        password_expires_at=password_expires_at,
+        password_expiry_warning=password_expiry_warning,
+    )
 
 
 @router.get("/users/{user_id}/quota", response_model=QuotaResponse)
