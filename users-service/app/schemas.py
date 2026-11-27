@@ -142,6 +142,17 @@ class ChangePasswordRequest(BaseModel):
         return value
 
 
+class PasswordResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return validate_email_value(value)
+
+
 class VerifyOtpRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
