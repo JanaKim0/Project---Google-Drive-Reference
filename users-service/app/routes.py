@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -18,7 +19,7 @@ from app.config import (
     PASSWORD_RESET_EXPIRE_MINUTES,
     VERIFICATION_TOKEN_EXPIRE_MINUTES,
 )
-from app.db import revoked_tokens_collection, users_collection
+from app.db import audit_log_collection, revoked_tokens_collection, users_collection
 from app.email_service import send_otp_email, send_password_reset_email, send_verification_email
 from app.schemas import (
     ChangePasswordRequest,
@@ -41,6 +42,7 @@ from app.security import (
     hash_otp,
     hash_password,
     hash_token,
+    is_password_expired,
     verify_otp,
     verify_password,
 )
@@ -69,11 +71,32 @@ INVALID_RESET_TOKEN_MESSAGE = "Link za resetovanje lozinke nije ispravan ili je 
 EXPIRED_RESET_TOKEN_MESSAGE = "Link za resetovanje lozinke je istekao. Zatražite novi."
 SAME_PASSWORD_MESSAGE = "Nova lozinka mora biti različita od trenutne."
 PASSWORD_RESET_SUCCESS_MESSAGE = "Lozinka je uspešno resetovana. Prijavite se sa novom lozinkom."
+PASSWORD_EXPIRED_MESSAGE = (
+    "Vaša lozinka je istekla i prijava je privremeno onemogućena. "
+    "Postavite novu lozinku putem opcije „Zaboravili ste lozinku?“."
+)
+PASSWORD_EXPIRED_CODE = "PASSWORD_EXPIRED"
 
 PASSWORD_RESET_COOLDOWN = timedelta(minutes=1)
 
 OTP_FIELDS = {"otp_hash": "", "otp_expires_at": "", "otp_attempts": ""}
 PASSWORD_RESET_FIELDS = {"password_reset_token_hash": "", "password_reset_expires_at": ""}
+
+
+def _log_security_event(user_id, event: str) -> None:
+    audit_log_collection.insert_one(
+        {"user_id": str(user_id), "event": event, "created_at": datetime.now(timezone.utc)}
+    )
+
+
+def _lock_expired_account(user) -> None:
+    result = users_collection.update_one(
+        {"_id": user["_id"], "password_expired_locked_at": {"$exists": False}},
+        {"$set": {"password_expired_locked_at": datetime.now(timezone.utc)}},
+    )
+    if result.modified_count:
+        _log_security_event(user["_id"], "ACCOUNT_LOCKED_PASSWORD_EXPIRED")
+    logger.warning("Odbijena prijava zbog istekle lozinke za korisnika %s", user["_id"])
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -148,6 +171,13 @@ def login(data: LoginRequest):
 
     if not user.get("is_verified"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ACCOUNT_NOT_VERIFIED_MESSAGE)
+
+    if is_password_expired(user.get("password_changed_at")):
+        _lock_expired_account(user)
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"detail": PASSWORD_EXPIRED_MESSAGE, "code": PASSWORD_EXPIRED_CODE},
+        )
 
     otp = generate_otp()
     users_collection.update_one(
@@ -246,7 +276,10 @@ def change_password(data: ChangePasswordRequest, token: dict = Depends(get_curre
 
     users_collection.update_one(
         {"_id": user["_id"]},
-        {"$set": {"password_hash": hash_password(data.new_password), "password_changed_at": now}},
+        {
+            "$set": {"password_hash": hash_password(data.new_password), "password_changed_at": now},
+            "$unset": {"password_expired_locked_at": ""},
+        },
     )
 
     return MessageResponse(message=PASSWORD_CHANGED_MESSAGE)
@@ -314,11 +347,14 @@ def confirm_password_reset(data: PasswordResetConfirmRequest):
         {"_id": user["_id"], "password_reset_token_hash": token_hash},
         {
             "$set": {"password_hash": hash_password(data.new_password), "password_changed_at": now},
-            "$unset": PASSWORD_RESET_FIELDS,
+            "$unset": {**PASSWORD_RESET_FIELDS, "password_expired_locked_at": ""},
         },
     )
     if result.modified_count == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=INVALID_RESET_TOKEN_MESSAGE)
+
+    if user.get("password_expired_locked_at"):
+        _log_security_event(user["_id"], "ACCOUNT_UNLOCKED_PASSWORD_RESET")
 
     return MessageResponse(message=PASSWORD_RESET_SUCCESS_MESSAGE)
 

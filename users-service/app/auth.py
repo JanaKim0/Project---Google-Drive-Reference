@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.db import revoked_tokens_collection, users_collection
-from app.security import decode_access_token
+from app.security import decode_access_token, is_password_expired
 
 NOT_AUTHENTICATED_MESSAGE = "Niste prijavljeni ili je sesija istekla."
 
@@ -45,6 +45,9 @@ def get_current_token(
 
     password_changed_at = user.get("password_changed_at")
     if password_changed_at and payload["iat"] < password_changed_at.timestamp():
+        raise _unauthorized()
+
+    if is_password_expired(password_changed_at):
         raise _unauthorized()
 
     return payload

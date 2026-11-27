@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import bcrypt
 import jwt
 
-from app.config import JWT_ALGORITHM, JWT_EXPIRE_MINUTES, JWT_SECRET
+from app.config import JWT_ALGORITHM, JWT_EXPIRE_MINUTES, JWT_SECRET, PASSWORD_MAX_AGE_MINUTES
 
 
 def hash_password(password: str) -> str:
@@ -38,6 +38,12 @@ def hash_otp(otp: str) -> str:
 
 def verify_otp(otp: str, otp_hash: str) -> bool:
     return verify_password(otp, otp_hash)
+
+
+def is_password_expired(password_changed_at: datetime | None) -> bool:
+    if password_changed_at is None:
+        return False
+    return datetime.now(timezone.utc) - password_changed_at >= timedelta(minutes=PASSWORD_MAX_AGE_MINUTES)
 
 
 TOKEN_REQUIRED_CLAIMS = ["sub", "role", "iat", "exp", "jti"]
