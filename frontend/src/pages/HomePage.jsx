@@ -20,6 +20,9 @@ function HomePage() {
       {isLoggedIn ? (
         <>
           <p style={{ color: 'green' }}>Prijavljeni ste.</p>
+          <p>
+            <Link to="/change-password">Promena lozinke</Link>
+          </p>
           <button type="button" onClick={handleLogout} disabled={loggingOut}>
             {loggingOut ? 'Odjava...' : 'Odjavi se'}
           </button>
