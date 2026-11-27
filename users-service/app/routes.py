@@ -20,7 +20,12 @@ from app.config import (
     VERIFICATION_TOKEN_EXPIRE_MINUTES,
 )
 from app.db import audit_log_collection, revoked_tokens_collection, users_collection
-from app.email_service import send_otp_email, send_password_reset_email, send_verification_email
+from app.email_service import (
+    send_otp_email,
+    send_password_expired_email,
+    send_password_reset_email,
+    send_verification_email,
+)
 from app.schemas import (
     ChangePasswordRequest,
     LoginRequest,
@@ -89,14 +94,23 @@ def _log_security_event(user_id, event: str) -> None:
     )
 
 
-def _lock_expired_account(user) -> None:
+def _lock_expired_account(user) -> bool:
     result = users_collection.update_one(
         {"_id": user["_id"], "password_expired_locked_at": {"$exists": False}},
         {"$set": {"password_expired_locked_at": datetime.now(timezone.utc)}},
     )
+    logger.warning("Odbijena prijava zbog istekle lozinke za korisnika %s", user["_id"])
     if result.modified_count:
         _log_security_event(user["_id"], "ACCOUNT_LOCKED_PASSWORD_EXPIRED")
-    logger.warning("Odbijena prijava zbog istekle lozinke za korisnika %s", user["_id"])
+        return True
+    return False
+
+
+def _send_password_expired_email_safely(user_id, email: str, first_name: str) -> None:
+    try:
+        send_password_expired_email(email, first_name)
+    except (smtplib.SMTPException, OSError):
+        logger.warning("Slanje obaveštenja o isteku lozinke nije uspelo za korisnika %s", user_id)
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -161,7 +175,7 @@ def verify_account(data: VerifyRequest):
 
 
 @router.post("/login", response_model=MessageResponse)
-def login(data: LoginRequest):
+def login(data: LoginRequest, background_tasks: BackgroundTasks):
     user = users_collection.find_one({"email": data.email})
     password_hash = user["password_hash"] if user else DUMMY_PASSWORD_HASH
     password_valid = verify_password(data.password, password_hash)
@@ -173,7 +187,10 @@ def login(data: LoginRequest):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ACCOUNT_NOT_VERIFIED_MESSAGE)
 
     if is_password_expired(user.get("password_changed_at")):
-        _lock_expired_account(user)
+        if _lock_expired_account(user):
+            background_tasks.add_task(
+                _send_password_expired_email_safely, user["_id"], user["email"], user["first_name"]
+            )
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN,
             content={"detail": PASSWORD_EXPIRED_MESSAGE, "code": PASSWORD_EXPIRED_CODE},
