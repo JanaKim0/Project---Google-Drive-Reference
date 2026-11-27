@@ -4,10 +4,11 @@ from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
+from app.auth import get_current_token
 from app.config import (
     DEFAULT_STORAGE_QUOTA_BYTES,
     JWT_EXPIRE_MINUTES,
@@ -15,7 +16,7 @@ from app.config import (
     OTP_MAX_ATTEMPTS,
     VERIFICATION_TOKEN_EXPIRE_MINUTES,
 )
-from app.db import users_collection
+from app.db import revoked_tokens_collection, users_collection
 from app.email_service import send_otp_email, send_verification_email
 from app.schemas import (
     LoginRequest,
@@ -54,6 +55,7 @@ OTP_SEND_FAILED_MESSAGE = "Slanje koda nije uspelo. Pokušajte ponovo."
 INVALID_OTP_MESSAGE = "Kod nije ispravan ili je istekao. Prijavite se ponovo."
 WRONG_OTP_MESSAGE = "Kod nije ispravan. Preostalo pokušaja: {remaining}."
 TOO_MANY_ATTEMPTS_MESSAGE = "Previše pogrešnih pokušaja. Prijavite se ponovo."
+LOGOUT_SUCCESS_MESSAGE = "Uspešno ste se odjavili."
 
 OTP_FIELDS = {"otp_hash": "", "otp_expires_at": "", "otp_attempts": ""}
 
@@ -193,6 +195,23 @@ def verify_login_otp(data: VerifyOtpRequest):
 
     access_token = create_access_token(str(user["_id"]), user.get("role", "user"))
     return TokenResponse(access_token=access_token, expires_in=JWT_EXPIRE_MINUTES * 60)
+
+
+@router.post("/logout", response_model=MessageResponse)
+def logout(token: dict = Depends(get_current_token)):
+    try:
+        revoked_tokens_collection.insert_one(
+            {
+                "jti": token["jti"],
+                "user_id": token["sub"],
+                "expires_at": datetime.fromtimestamp(token["exp"], tz=timezone.utc),
+                "revoked_at": datetime.now(timezone.utc),
+            }
+        )
+    except DuplicateKeyError:
+        pass
+
+    return MessageResponse(message=LOGOUT_SUCCESS_MESSAGE)
 
 
 @router.get("/users/{user_id}/quota", response_model=QuotaResponse)
