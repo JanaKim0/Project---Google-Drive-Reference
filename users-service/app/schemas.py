@@ -23,6 +23,33 @@ def validate_email_value(value: str) -> str:
     return value
 
 
+def validate_password_input(value: str) -> str:
+    if not value:
+        raise ValueError("Lozinka je obavezna.")
+    if len(value) > PASSWORD_MAX_LENGTH or len(value.encode("utf-8")) > BCRYPT_MAX_BYTES:
+        raise ValueError("Lozinka je predugačka.")
+    return value
+
+
+def validate_password_strength(value: str) -> str:
+    if not value:
+        raise ValueError("Lozinka je obavezna.")
+    if not PASSWORD_MIN_LENGTH <= len(value) <= PASSWORD_MAX_LENGTH:
+        raise ValueError("Lozinka mora imati između 8 i 64 karaktera.")
+    if len(value.encode("utf-8")) > BCRYPT_MAX_BYTES:
+        raise ValueError("Lozinka je predugačka.")
+    if not (
+        re.search(r"[A-Z]", value)
+        and re.search(r"[a-z]", value)
+        and re.search(r"[0-9]", value)
+        and re.search(r"[^A-Za-z0-9]", value)
+    ):
+        raise ValueError(
+            "Lozinka mora sadržati veliko slovo, malo slovo, cifru i specijalni karakter."
+        )
+    return value
+
+
 class RegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -51,22 +78,7 @@ class RegisterRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password(cls, value: str) -> str:
-        if not value:
-            raise ValueError("Lozinka je obavezna.")
-        if not PASSWORD_MIN_LENGTH <= len(value) <= PASSWORD_MAX_LENGTH:
-            raise ValueError("Lozinka mora imati između 8 i 64 karaktera.")
-        if len(value.encode("utf-8")) > BCRYPT_MAX_BYTES:
-            raise ValueError("Lozinka je predugačka.")
-        if not (
-            re.search(r"[A-Z]", value)
-            and re.search(r"[a-z]", value)
-            and re.search(r"[0-9]", value)
-            and re.search(r"[^A-Za-z0-9]", value)
-        ):
-            raise ValueError(
-                "Lozinka mora sadržati veliko slovo, malo slovo, cifru i specijalni karakter."
-            )
-        return value
+        return validate_password_strength(value)
 
     @field_validator("confirm_password")
     @classmethod
@@ -98,10 +110,35 @@ class LoginRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password(cls, value: str) -> str:
-        if not value:
-            raise ValueError("Lozinka je obavezna.")
-        if len(value) > PASSWORD_MAX_LENGTH or len(value.encode("utf-8")) > BCRYPT_MAX_BYTES:
-            raise ValueError("Lozinka je predugačka.")
+        return validate_password_input(value)
+
+
+class ChangePasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str
+    new_password: str
+    confirm_new_password: str
+
+    @field_validator("current_password")
+    @classmethod
+    def validate_current_password(cls, value: str) -> str:
+        return validate_password_input(value)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str, info: ValidationInfo) -> str:
+        value = validate_password_strength(value)
+        if value == info.data.get("current_password"):
+            raise ValueError("Nova lozinka mora biti različita od trenutne.")
+        return value
+
+    @field_validator("confirm_new_password")
+    @classmethod
+    def validate_confirm_new_password(cls, value: str, info: ValidationInfo) -> str:
+        new_password = info.data.get("new_password")
+        if new_password is not None and value != new_password:
+            raise ValueError("Lozinke se ne poklapaju.")
         return value
 
 

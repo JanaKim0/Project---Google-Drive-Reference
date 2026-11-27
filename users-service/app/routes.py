@@ -8,17 +8,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
-from app.auth import get_current_token
+from app.auth import NOT_AUTHENTICATED_MESSAGE, get_current_token
 from app.config import (
     DEFAULT_STORAGE_QUOTA_BYTES,
     JWT_EXPIRE_MINUTES,
     OTP_EXPIRE_MINUTES,
     OTP_MAX_ATTEMPTS,
+    PASSWORD_MIN_AGE_MINUTES,
     VERIFICATION_TOKEN_EXPIRE_MINUTES,
 )
 from app.db import revoked_tokens_collection, users_collection
 from app.email_service import send_otp_email, send_verification_email
 from app.schemas import (
+    ChangePasswordRequest,
     LoginRequest,
     MessageResponse,
     QuotaResponse,
@@ -56,6 +58,9 @@ INVALID_OTP_MESSAGE = "Kod nije ispravan ili je istekao. Prijavite se ponovo."
 WRONG_OTP_MESSAGE = "Kod nije ispravan. Preostalo pokušaja: {remaining}."
 TOO_MANY_ATTEMPTS_MESSAGE = "Previše pogrešnih pokušaja. Prijavite se ponovo."
 LOGOUT_SUCCESS_MESSAGE = "Uspešno ste se odjavili."
+WRONG_CURRENT_PASSWORD_MESSAGE = "Trenutna lozinka nije ispravna."
+PASSWORD_TOO_NEW_MESSAGE = "Lozinka mora biti stara najmanje jedan dan da bi se mogla promeniti."
+PASSWORD_CHANGED_MESSAGE = "Lozinka je uspešno promenjena. Prijavite se ponovo."
 
 OTP_FIELDS = {"otp_hash": "", "otp_expires_at": "", "otp_attempts": ""}
 
@@ -212,6 +217,28 @@ def logout(token: dict = Depends(get_current_token)):
         pass
 
     return MessageResponse(message=LOGOUT_SUCCESS_MESSAGE)
+
+
+@router.post("/users/me/password", response_model=MessageResponse)
+def change_password(data: ChangePasswordRequest, token: dict = Depends(get_current_token)):
+    user = users_collection.find_one({"_id": ObjectId(token["sub"])})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=NOT_AUTHENTICATED_MESSAGE)
+
+    if not verify_password(data.current_password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=WRONG_CURRENT_PASSWORD_MESSAGE)
+
+    now = datetime.now(timezone.utc)
+    password_changed_at = user.get("password_changed_at")
+    if password_changed_at and now - password_changed_at < timedelta(minutes=PASSWORD_MIN_AGE_MINUTES):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=PASSWORD_TOO_NEW_MESSAGE)
+
+    users_collection.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"password_hash": hash_password(data.new_password), "password_changed_at": now}},
+    )
+
+    return MessageResponse(message=PASSWORD_CHANGED_MESSAGE)
 
 
 @router.get("/users/{user_id}/quota", response_model=QuotaResponse)
