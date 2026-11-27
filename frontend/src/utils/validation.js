@@ -2,6 +2,17 @@ const NAME_REGEX = /^[A-Za-zČĆŽŠĐčćžšđ' -]{2,50}$/
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const OTP_REGEX = /^[0-9]{6}$/
 
+function getEmailError(value) {
+  const email = value.trim()
+  if (!email) {
+    return 'Imejl je obavezan.'
+  }
+  if (email.length > 254 || !EMAIL_REGEX.test(email)) {
+    return 'Imejl nije u ispravnom formatu.'
+  }
+  return ''
+}
+
 function getPasswordStrengthError(password) {
   if (!password) {
     return 'Lozinka je obavezna.'
@@ -37,11 +48,9 @@ export function validateRegisterForm(form) {
     errors.lastName = 'Prezime može sadržati samo slova (2–50 karaktera).'
   }
 
-  const email = form.email.trim()
-  if (!email) {
-    errors.email = 'Imejl je obavezan.'
-  } else if (email.length > 254 || !EMAIL_REGEX.test(email)) {
-    errors.email = 'Imejl nije u ispravnom formatu.'
+  const emailError = getEmailError(form.email)
+  if (emailError) {
+    errors.email = emailError
   }
 
   const passwordError = getPasswordStrengthError(form.password)
@@ -59,11 +68,9 @@ export function validateRegisterForm(form) {
 export function validateLoginForm(form) {
   const errors = {}
 
-  const email = form.email.trim()
-  if (!email) {
-    errors.email = 'Imejl je obavezan.'
-  } else if (email.length > 254 || !EMAIL_REGEX.test(email)) {
-    errors.email = 'Imejl nije u ispravnom formatu.'
+  const emailError = getEmailError(form.email)
+  if (emailError) {
+    errors.email = emailError
   }
 
   if (!form.password) {
@@ -99,6 +106,32 @@ export function validateChangePasswordForm(form) {
     errors.newPassword = newPasswordError
   } else if (form.newPassword === form.currentPassword) {
     errors.newPassword = 'Nova lozinka mora biti različita od trenutne.'
+  }
+
+  if (form.confirmNewPassword !== form.newPassword) {
+    errors.confirmNewPassword = 'Lozinke se ne poklapaju.'
+  }
+
+  return errors
+}
+
+export function validateForgotPasswordForm(form) {
+  const errors = {}
+
+  const emailError = getEmailError(form.email)
+  if (emailError) {
+    errors.email = emailError
+  }
+
+  return errors
+}
+
+export function validateResetPasswordForm(form) {
+  const errors = {}
+
+  const newPasswordError = getPasswordStrengthError(form.newPassword)
+  if (newPasswordError) {
+    errors.newPassword = newPasswordError
   }
 
   if (form.confirmNewPassword !== form.newPassword) {

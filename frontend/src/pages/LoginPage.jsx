@@ -188,6 +188,11 @@ function LoginPage() {
       </button>
 
       <p>
+        <Link to="/forgot-password">Zaboravili ste lozinku?</Link>
+      </p>
+
+
+      <p>
         Nemate nalog? <Link to="/register">Registrujte se</Link>
       </p>
     </form>
