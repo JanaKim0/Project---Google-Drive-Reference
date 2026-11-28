@@ -69,6 +69,9 @@ function HomePage() {
             </p>
           )}
           <p>
+            <Link to="/drive">Moj disk</Link>
+          </p>
+          <p>
             <Link to="/change-password">Promena lozinke</Link>
           </p>
           <button type="button" onClick={handleLogout} disabled={loggingOut}>
