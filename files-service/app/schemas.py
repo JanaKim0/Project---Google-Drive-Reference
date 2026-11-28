@@ -33,3 +33,15 @@ class FolderResponse(BaseModel):
     name: str
     parent_id: str | None
     created_at: datetime
+
+
+class ItemResponse(BaseModel):
+    id: str
+    name: str
+    type: str
+    created_at: datetime
+
+
+class PathItem(BaseModel):
+    id: str
+    name: str
